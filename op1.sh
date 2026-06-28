@@ -23,6 +23,11 @@ sed -i 's|https://git.openwrt.org/feed/telephony.git|https://github.com/openwrt/
 
 # 添加 lienol 大的 package
 echo 'src-git lienol https://github.com/Lienol/openwrt-package.git;main' >>feeds.conf.default
+# ========== 新增 Dockerman 依赖源 ==========
+# Dockerman主程序
+grep -q "dockerman" feeds.conf.default || echo "src-git dockerman https://github.com/lisaac/luci-app-dockerman.git" >> feeds.conf.default
+# Docker依赖库 luci-lib-docker
+grep -q "dockermanlib" feeds.conf.default || echo "src-git dockermanlib https://github.com/lisaac/luci-lib-docker.git" >> feeds.conf.default
 
 # Uncomment a feed source
 #sed -i 's/^#\(.*helloworld\)/\1/' feeds.conf.default
