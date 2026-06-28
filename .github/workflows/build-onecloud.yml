@@ -1,0 +1,32 @@
+name: Build OneCloud OpenWrt
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Prepare build environment
+        uses: P3TERX/Actions-OpenWrt@main
+
+      - name: Import config & deduplicate
+        run: |
+          # 复制你的配置文件
+          cp -f onecloud.config .config
+          # 只对CONFIG_开头项去重，注释不变
+          awk '/^CONFIG_/ && seen[$0]++ {next} 1' .config > tmp.cfg
+          mv -f tmp.cfg .config
+          # 规范化配置
+          make defconfig
+
+      - name: Compile firmware
+        run: make -j$(nproc) V=s
