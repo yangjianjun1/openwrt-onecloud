@@ -112,8 +112,7 @@ jobs:
         make download -j8
         find dl -size -1024c -exec ls -l {} \;
         find dl -size -1024c -exec rm -f {} \;
-    - name: Compile the firmware
-      id: compile
+    - name: Compile the firmwar
       run: |
         cd openwrt
         echo -e "$(nproc) thread compile"
