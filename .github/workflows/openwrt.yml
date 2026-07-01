@@ -125,8 +125,7 @@ jobs:
         echo "FILE_DATE=_$(date +"%Y%m%d%H%M")" >> $GITHUB_ENV
 
     - name: Generate direct burn
-             - name: Generate direct burn
-        run: |
+      run: |
           sudo apt update
           sudo apt install -y android-sdk-libsparse-utils
           target_size="512"
