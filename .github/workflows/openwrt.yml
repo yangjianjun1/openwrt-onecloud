@@ -125,7 +125,7 @@ jobs:
         echo "FILE_DATE=_$(date +"%Y%m%d%H%M")" >> $GITHUB_ENV
 
     - name: Generate direct burn
-          run: |
+        run: |
         sudo apt update
         sudo apt install -y android-sdk-libsparse-utils
         # 修复缺失的 target_size，单位MB，玩客云推荐512，不够改1024
