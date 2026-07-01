@@ -125,62 +125,57 @@ jobs:
         echo "FILE_DATE=_$(date +"%Y%m%d%H%M")" >> $GITHUB_ENV
 
     - name: Generate direct burn
+             - name: Generate direct burn
         run: |
-        sudo apt update
-        sudo apt install -y android-sdk-libsparse-utils
-        # 修复缺失的 target_size，单位MB，玩客云推荐512，不够改1024
-        target_size="512"
-        ver="v0.3.1"
-        curl -L -o ./AmlImg https://github.com/lxiaya/AmlImg/releases/download/$ver/AmlImg_${ver}_linux_amd64
-        chmod +x ./AmlImg
-        curl -L -o ./uboot.img https://github.com/lxiaya/u-boot-onecloud/releases/download/build-20230901-0443/eMMC.burn.img
-        ./AmlImg unpack ./uboot.img burn/
-        echo "::endgroup::"
-        gunzip openwrt/bin/targets/*/*/*.gz
-        # 只取第一个镜像，避免多文件换行报错
-        diskimg=$(ls openwrt/bin/targets/*/*/*.img | head -n1)
-        loop=$(sudo losetup --find --show --partscan "$diskimg")
-        img_ext="openwrt.img"
-        img_mnt="xd"
-        rootfs_mnt="img"
-        # 删除无用 $1 参数，不需要外部传参
-        boot_img="${img_ext}"
-        boot_img_mnt="${img_mnt}"
-        rootfs_img_mnt="${rootfs_mnt}"
-        echo "${boot_img}"
-        echo "${boot_img_mnt}"
-        echo "${rootfs_img_mnt}"
-        sudo rm -rf "${boot_img}" "${boot_img_mnt}" "${rootfs_img_mnt}"
-        # target_size 已定义，不再为空，解决 dd 报错
-        sudo dd if=/dev/zero of="${boot_img}" bs=1M count="${target_size}"
-        sudo mkfs.ext4 "${boot_img}"
-        # -p 防止目录已存在报错
-        sudo mkdir -p "${boot_img_mnt}" "${rootfs_img_mnt}"
-        sudo mount "${boot_img}" "${boot_img_mnt}"
-        sudo mount "${loop}p2" "${rootfs_img_mnt}"
-        cd "${rootfs_img_mnt}"
-        sudo cp -r * "../${boot_img_mnt}/"
-        cd ..
-        sudo sync
-        sudo umount "${boot_img_mnt}"
-        sudo umount "${rootfs_img_mnt}"
-        sudo img2simg "${loop}p1" burn/boot.simg
-        # 修复硬编码 openwrt.img，使用真实编译镜像
-        sudo img2simg "${diskimg}" burn/rootfs.simg
-        sudo rm -rf *.img
-        sudo losetup -d "${loop}"
-        cat <<EOF >> burn/commands.txt
-        PARTITION:boot:sparse:boot.simg
-        PARTITION:rootfs:sparse:rootfs.simg
-        EOF
-        prefix=$(echo "${diskimg}" | sed 's/\.img$//')
-        burnimg="${prefix}.burn.img"
-        ./AmlImg pack "${burnimg}" burn/
-        for f in openwrt/bin/targets/*/*/*.burn.img; do
-          sha256sum "$f" >"${f}.sha"
-          xz -9 --threads=0 --compress "$f"
-        done
-        sudo rm -rf openwrt/bin/targets/*/*/*.img openwrt/bin/targets/*/*/*.gz
+          sudo apt update
+          sudo apt install -y android-sdk-libsparse-utils
+          target_size="512"
+          ver="v0.3.1"
+          curl -L -o ./AmlImg https://github.com/lxiaya/AmlImg/releases/download/$ver/AmlImg_${ver}_linux_amd64
+          chmod +x ./AmlImg
+          curl -L -o ./uboot.img https://github.com/lxiaya/u-boot-onecloud/releases/download/build-20230901-0443/eMMC.burn.img
+          ./AmlImg unpack ./uboot.img burn/
+          echo "::endgroup::"
+          gunzip openwrt/bin/targets/*/*/*.gz
+          diskimg=$(ls openwrt/bin/targets/*/*/*.img | head -n1)
+          loop=$(sudo losetup --find --show --partscan "$diskimg")
+          img_ext="openwrt.img"
+          img_mnt="xd"
+          rootfs_mnt="img"
+          boot_img="${img_ext}"
+          boot_img_mnt="${img_mnt}"
+          rootfs_img_mnt="${rootfs_mnt}"
+          echo "${boot_img}"
+          echo "${boot_img_mnt}"
+          echo "${rootfs_img_mnt}"
+          sudo rm -rf "${boot_img}" "${boot_img_mnt}" "${rootfs_img_mnt}"
+          sudo dd if=/dev/zero of="${boot_img}" bs=1M count="${target_size}"
+          sudo mkfs.ext4 "${boot_img}"
+          sudo mkdir -p "${boot_img_mnt}" "${rootfs_img_mnt}"
+          sudo mount "${boot_img}" "${boot_img_mnt}"
+          sudo mount "${loop}p2" "${rootfs_img_mnt}"
+          cd "${rootfs_img_mnt}"
+          sudo cp -r * "../${boot_img_mnt}/"
+          cd ..
+          sudo sync
+          sudo umount "${boot_img_mnt}"
+          sudo umount "${rootfs_img_mnt}"
+          sudo img2simg "${loop}p1" burn/boot.simg
+          sudo img2simg "${diskimg}" burn/rootfs.simg
+          sudo rm -rf *.img
+          sudo losetup -d "${loop}"
+          cat <<EOF >> burn/commands.txt
+          PARTITION:boot:sparse:boot.simg
+          PARTITION:rootfs:sparse:rootfs.simg
+          EOF
+          prefix=$(echo "${diskimg}" | sed 's/\.img$//')
+          burnimg="${prefix}.burn.img"
+          ./AmlImg pack "${burnimg}" burn/
+          for f in openwrt/bin/targets/*/*/*.burn.img; do
+            sha256sum "$f" >"${f}.sha"
+            xz -9 --threads=0 --compress "$f"
+          done
+          sudo rm -rf openwrt/bin/targets/*/*/*.img openwrt/bin/targets/*/*/*.gz
 
     - name: Check space usage
       if: (!cancelled())
