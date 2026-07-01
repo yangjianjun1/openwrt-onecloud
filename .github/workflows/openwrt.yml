@@ -165,9 +165,9 @@ jobs:
           sudo rm -rf *.img
           sudo losetup -d "${loop}"
           cat <<EOF >> burn/commands.txt
-PARTITION:boot:sparse:boot.simg
-PARTITION:rootfs:sparse:rootfs.simg
-EOF
+          PARTITION:boot:sparse:boot.simg
+          PARTITION:rootfs:sparse:rootfs.simg
+          EOF
           prefix=$(echo "${diskimg}" | sed 's/\.img$//')
           burnimg="${prefix}.burn.img"
           ./AmlImg pack "${burnimg}" burn/
