@@ -125,7 +125,8 @@ jobs:
         echo "FILE_DATE=_$(date +"%Y%m%d%H%M")" >> $GITHUB_ENV
 
     - name: Generate direct burn
-      run: |
+      - name: Generate direct burn
+        run: |
           sudo apt update
           sudo apt install -y android-sdk-libsparse-utils
           target_size="512"
@@ -164,9 +165,9 @@ jobs:
           sudo rm -rf *.img
           sudo losetup -d "${loop}"
           cat <<EOF >> burn/commands.txt
-          PARTITION:boot:sparse:boot.simg
-          PARTITION:rootfs:sparse:rootfs.simg
-          EOF
+PARTITION:boot:sparse:boot.simg
+PARTITION:rootfs:sparse:rootfs.simg
+EOF
           prefix=$(echo "${diskimg}" | sed 's/\.img$//')
           burnimg="${prefix}.burn.img"
           ./AmlImg pack "${burnimg}" burn/
