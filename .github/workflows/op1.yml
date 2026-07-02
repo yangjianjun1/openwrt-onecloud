@@ -74,9 +74,12 @@ jobs:
       id: compile
       run: |
         cd openwrt
+        make prereq
+        make -j$(nproc) tools/install
+        make -j$(nproc) toolchain/install
         make -j$(nproc) || make -j1 V=s
         echo "status=success" >> $GITHUB_OUTPUT
-
+        
     - name: Set output variables
       id: vars
       run: |
