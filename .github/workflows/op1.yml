@@ -1,0 +1,244 @@
+#
+# Build OpenWrt for OneCloud
+# Optimized: Build / Pack / Release split
+#
+
+name: Build OneCloud
+
+on:
+  repository_dispatch:
+  workflow_dispatch:
+    inputs:
+      ssh:
+        description: 'SSH connection to Actions'
+        required: false
+        default: 'false'
+
+env:
+  REPO_URL: https://github.com/openwrt/openwrt.git
+  REPO_BRANCH: openwrt-24.10
+  FEEDS_CONF: feeds.conf.default
+  CONFIG_FILE: onecloud.config
+  DIY_P1_SH: op1.sh
+  DIY_P2_SH: op2.sh
+  DIY_P3_SH: op3.sh
+  TZ: Asia/Shanghai
+
+jobs:
+  # ============================================
+  # Job 1: Build Firmware (Compilation only)
+  # ============================================
+  build:
+    runs-on: ubuntu-22.04
+    outputs:
+      DEVICE_NAME: ${{ steps.vars.outputs.DEVICE_NAME }}
+      FILE_DATE: ${{ steps.vars.outputs.FILE_DATE }}
+    steps:
+    - name: Checkout
+      uses: actions/checkout@main
+
+    - name: Initialization environment
+      env:
+        DEBIAN_FRONTEND: noninteractive
+      run: |
+        sudo rm -rf /etc/apt/sources.list.d/* /usr/share/dotnet /usr/local/lib/android /opt/ghc
+        sudo -E apt-get -qq update
+        sudo -E apt-get -qq install build-essential clang flex bison g++ gawk gcc-multilib g++-multilib nasm dosfstools libssl-dev libncurses5-dev libelf-dev libtool automake make cmake cpio curl file patch python3 python3-pip rsync squashfs-tools subversion swig unzip wget xxd zlib1g-dev
+        sudo -E apt-get -qq autoremove --purge
+        sudo -E apt-get -qq clean
+        sudo timedatectl set-timezone "$TZ"
+
+    - name: Clone source & Load custom configs
+      run: |
+        git clone --depth 1 $REPO_URL -b $REPO_BRANCH openwrt
+        [ -e $FEEDS_CONF ] && mv $FEEDS_CONF openwrt/feeds.conf.default
+        chmod +x $DIY_P1_SH $DIY_P2_SH $DIY_P3_SH
+        cd openwrt
+        $GITHUB_WORKSPACE/$DIY_P1_SH
+        ./scripts/feeds update -a
+        $GITHUB_WORKSPACE/$DIY_P3_SH
+        ./scripts/feeds update -a
+        ./scripts/feeds install -a
+        [ -e ../files ] && mv ../files ./files
+        [ -e ../$CONFIG_FILE ] && mv ../$CONFIG_FILE ./.config
+        $GITHUB_WORKSPACE/$DIY_P2_SH
+
+    - name: Download packages
+      run: |
+        cd openwrt
+        make defconfig
+        make download -j8
+        find dl -size -1024c -exec rm -f {} \;
+
+    - name: Compile firmware
+      id: compile
+      run: |
+        cd openwrt
+        make -j$(nproc) || make -j1 V=s
+        echo "status=success" >> $GITHUB_OUTPUT
+
+    - name: Set output variables
+      id: vars
+      run: |
+        cd openwrt
+        grep '^CONFIG_TARGET.*DEVICE.*=y' .config | sed -r 's/.*DEVICE_(.*)=y/\1/' > DEVICE_NAME
+        echo "DEVICE_NAME=_$(cat DEVICE_NAME)" >> $GITHUB_OUTPUT
+        echo "FILE_DATE=_$(date +"%Y%m%d%H%M")" >> $GITHUB_OUTPUT
+
+    - name: Upload raw images as Artifact
+      uses: actions/upload-artifact@main
+      with:
+        name: raw-images
+        path: openwrt/bin/targets/*/*/*.img.gz
+        retention-days: 1
+
+  # ============================================
+  # Job 2: Pack Firmware (Burnable image)
+  # Depends on: build
+  # ============================================
+  pack:
+    needs: build
+    runs-on: ubuntu-22.04
+    outputs:
+      HAS_RELEASE: ${{ steps.check.outputs.HAS_RELEASE }}
+    steps:
+    - name: Checkout
+      uses: actions/checkout@main
+
+    - name: Download raw images
+      uses: actions/download-artifact@main
+      with:
+        name: raw-images
+        path: openwrt/bin/targets/
+
+    - name: Install packing tools
+      run: |
+        sudo apt update
+        sudo apt install -y android-sdk-libsparse-utils
+        ver="v0.3.1"
+        curl -L -o ./AmlImg https://github.com/lxiaya/AmlImg/releases/download/$ver/AmlImg_${ver}_linux_amd64
+        chmod +x ./AmlImg
+        curl -L -o ./uboot.img https://github.com/lxiaya/u-boot-onecloud/releases/download/build-20230901-0443/eMMC.burn.img
+
+    - name: Generate direct burn (Dynamic & Resumable)
+      id: check
+      run: |
+        set -euo pipefail
+        mkdir -p burn
+
+        # Unpack u-boot
+        ./AmlImg unpack ./uboot.img burn/
+
+        # Find and extract image
+        find openwrt/bin/targets -name "*.gz" -exec gunzip {} \;
+        diskimg=$(find openwrt/bin/targets -name "*.img" | head -n1)
+        
+        if [ -z "$diskimg" ]; then
+          echo "HAS_RELEASE=false" >> $GITHUB_OUTPUT
+          exit 0
+        fi
+
+        echo "HAS_RELEASE=true" >> $GITHUB_OUTPUT
+        loop=$(sudo losetup --find --show --partscan "$diskimg")
+        trap "sudo losetup -d '$loop'" EXIT
+
+        # Dynamic sizing logic (Boot)
+        boot_used_kb=$(df --output=used -k "${loop}p1" | tail -1)
+        boot_mb=$(( (boot_used_kb * 12 / 10 + 1023) / 1024 ))
+        boot_mb=$(( (boot_mb + 3) & ~3 ))
+        [ "$boot_mb" -lt 32 ] && boot_mb=32
+        
+        dd if=/dev/zero of=boot.img bs=1M count=$boot_mb
+        mkfs.ext4 boot.img
+        mkdir -p boot_mnt
+        sudo mount "${loop}p1" boot_mnt
+        sudo mount boot.img xd
+        sudo cp -ra boot_mnt/. xd/
+        sudo sync
+        sudo umount xd boot_mnt
+        sudo img2simg boot.img burn/boot.simg
+
+        # Dynamic sizing logic (Rootfs)
+        rootfs_used_kb=$(df --output=used -k "${loop}p2" | tail -1)
+        rootfs_mb=$(( (rootfs_used_kb * 12 / 10 + 1023) / 1024 ))
+        rootfs_mb=$(( (rootfs_mb + 3) & ~3 ))
+        [ "$rootfs_mb" -lt 300 ] && rootfs_mb=300
+
+        dd if=/dev/zero of=openwrt.img bs=1M count=$rootfs_mb
+        mkfs.ext4 openwrt.img
+        mkdir -p img xd
+        sudo mount "${loop}p2" img
+        sudo mount openwrt.img xd
+        sudo cp -ra img/. xd/
+        sudo sync
+        sudo umount xd img
+        sudo img2simg openwrt.img burn/rootfs.simg
+
+        # Pack
+        cat > burn/commands.txt <<EOF
+        PARTITION:boot:sparse:boot.simg
+        PARTITION:rootfs:sparse:rootfs.simg
+        EOF
+
+        prefix=$(basename "$diskimg" .img)
+        ./AmlImg pack "${prefix}.burn.img" burn/
+
+        # Checksum & Compress (Resume support)
+        if [ ! -f "${prefix}.burn.img.sha" ]; then
+          sha256sum "${prefix}.burn.img" > "${prefix}.burn.img.sha"
+        fi
+        if [ ! -f "${prefix}.burn.img.xz" ]; then
+          xz -9 -T0 "${prefix}.burn.img"
+        fi
+
+    - name: Upload burnable image
+      uses: actions/upload-artifact@main
+      with:
+        name: burn-image
+        path: |
+          *.burn.img.xz
+          *.burn.img.sha
+        retention-days: 7
+
+  # ============================================
+  # Job 3: Release
+  # Depends on: pack
+  # ============================================
+  release:
+    needs: [build, pack]
+    if: needs.pack.outputs.HAS_RELEASE == 'true'
+    runs-on: ubuntu-22.04
+    steps:
+    - name: Download burn image
+      uses: actions/download-artifact@main
+      with:
+        name: burn-image
+
+    - name: Generate release tag
+      id: tag
+      run: |
+        echo "release_tag=$(date +"%Y.%m.%d-%H%M")" >> $GITHUB_OUTPUT
+
+    - name: Upload firmware to release
+      uses: softprops/action-gh-release@master
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        tag_name: ${{ steps.tag.outputs.release_tag }}
+        files: |
+          *.burn.img.xz
+          *.burn.img.sha
+
+    - name: Delete old releases
+      uses: dev-drprasad/delete-older-releases@master
+      with:
+        keep_latest: 3
+        delete_tags: true
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Delete old workflow runs
+      uses: Mattraks/delete-workflow-runs@main
+      with:
+        retain_days: 0
+        keep_minimum_runs: 5
