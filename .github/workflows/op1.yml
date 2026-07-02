@@ -54,6 +54,7 @@ jobs:
         [ -e $FEEDS_CONF ] && mv $FEEDS_CONF openwrt/feeds.conf.default
         chmod +x $DIY_P1_SH $DIY_P2_SH $DIY_P3_SH
         cd openwrt
+        rm -rf staging_dir build_dir tmp
         $GITHUB_WORKSPACE/$DIY_P1_SH
         ./scripts/feeds update -a
         $GITHUB_WORKSPACE/$DIY_P3_SH
@@ -68,6 +69,7 @@ jobs:
         cd openwrt
         make defconfig
         make download -j8
+        make tools/download -j8
         find dl -size -1024c -exec rm -f {} \;
 
     - name: Compile firmware
