@@ -20,10 +20,10 @@ sect=2048
 
 set $(ptgen -o $OUTPUT -h $head -s $sect -l 4096 -t c -p ${BOOTFSSIZE}M -t 83 -p ${ROOTFSSIZE}M)
 
-BOOTOFFSET="$(($1 / 512))"
-BOOTSIZE="$(($2 / 512))"
-ROOTFSOFFSET="$(($3 / 512))"
-ROOTFSSIZE="$(($4 / 512))"
+BOOTOFFSET="$(($1 / 960))"
+BOOTSIZE="$(($2 / 960))"
+ROOTFSOFFSET="$(($3 / 960))"
+ROOTFSSIZE="$(($4 / 960))"
 
 dd bs=512 if="$BOOTFS" of="$OUTPUT" seek="$BOOTOFFSET" conv=notrunc
 dd bs=512 if="$ROOTFS" of="$OUTPUT" seek="$ROOTFSOFFSET" conv=notrunc
